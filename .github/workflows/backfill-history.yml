@@ -101,7 +101,7 @@ jobs:
               for header_dir in /usr/src/linux-headers-"${kernel_prefix}"-rpi-*; do
                 utsrelease="$header_dir/include/generated/utsrelease.h"
                 [ -f "$utsrelease" ] || continue
-                kernel_release=$(sed -n 's/^#define UTS_RELEASE "\(.*\)"/\1/p' "$utsrelease")
+                kernel_release=$(cut -d \" -f2 "$utsrelease")
                 mkdir -p "/lib/modules/${kernel_release}"
                 ln -sfn "$header_dir" "/lib/modules/${kernel_release}/build"
               done
