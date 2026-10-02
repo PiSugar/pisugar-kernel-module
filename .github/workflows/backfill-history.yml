@@ -14,6 +14,17 @@ jobs:
       fail-fast: false
       matrix:
         kernel_version:
+          - '6.6.20'
+          - '6.6.28'
+          - '6.6.31'
+          - '6.6.47'
+          - '6.6.51'
+          - '6.6.62'
+          - '6.6.74'
+          - '6.12.19'
+          - '6.12.20'
+          - '6.12.25'
+          - '6.12.34'
           - '6.12.47'
           - '6.12.62'
           - '6.12.75'
@@ -27,6 +38,17 @@ jobs:
           - '6.18.39'
           - '6.18.50'
         arch: [arm64, armhf]
+        include:
+          - kernel_version: '6.1.73'
+            arch: arm64
+            header_prefix: 6.1.0-rpi8
+            kbuild_package: linux-kbuild-6.1
+            release_version: '6.1.73'
+          - kernel_version: '6.1.73'
+            arch: armhf
+            header_prefix: 6.1.0-rpi8
+            kbuild_package: linux-kbuild-6.1
+            release_version: '6.1.73'
     steps:
       - uses: actions/checkout@v4
 
@@ -37,10 +59,12 @@ jobs:
           KERNEL_VERSION: ${{ matrix.kernel_version }}
           MODULE_ARCH: ${{ matrix.arch }}
           DEB_ARCH: ${{ matrix.arch }}
+          HEADER_PREFIX: ${{ matrix.header_prefix || '' }}
+          KBUILD_PACKAGE: ${{ matrix.kbuild_package || '' }}
           CONFIGS: ${{ matrix.arch == 'arm64' && 'rpi-v8 rpi-2712' || 'rpi-v6 rpi-v7 rpi-v7l' }}
         run: |
           docker run --rm --platform "$PLATFORM" \
-            -e KERNEL_VERSION -e MODULE_ARCH -e DEB_ARCH -e CONFIGS \
+            -e KERNEL_VERSION -e MODULE_ARCH -e DEB_ARCH -e HEADER_PREFIX -e KBUILD_PACKAGE -e CONFIGS \
             -v "$PWD:/output" -w /tmp "$IMAGE" bash -euxo pipefail -c '
               apt-get update
               apt-get install -y --no-install-recommends ca-certificates curl git build-essential bc bison flex libssl-dev libelf-dev kmod
@@ -48,7 +72,8 @@ jobs:
 
               pool=https://archive.raspberrypi.com/debian/pool/main/l/linux
               curl -fsSL "$pool/" -o /tmp/linux-pool.html
-              kernel_prefix="${KERNEL_VERSION}+rpt"
+              kernel_prefix=${HEADER_PREFIX:-"${KERNEL_VERSION}+rpt"}
+              kbuild_package=${KBUILD_PACKAGE:-"linux-kbuild-${kernel_prefix}"}
               packages=""
               download_package() {
                 package=$1
@@ -62,7 +87,7 @@ jobs:
                 packages="$packages $filename"
               }
 
-              download_package "linux-kbuild-${kernel_prefix}" "$DEB_ARCH"
+              download_package "$kbuild_package" "$DEB_ARCH"
               download_package "linux-headers-${kernel_prefix}-common-rpi" all
 
               for config in $CONFIGS; do
@@ -73,6 +98,13 @@ jobs:
               # Images are not needed to build external modules.  Unpacking
               # avoids pulling each historical kernel image into the runner.
               dpkg --unpack $packages
+              for header_dir in /usr/src/linux-headers-"${kernel_prefix}"-rpi-*; do
+                utsrelease="$header_dir/include/generated/utsrelease.h"
+                [ -f "$utsrelease" ] || continue
+                kernel_release=$(sed -n 's/^#define UTS_RELEASE "\(.*\)"/\1/p' "$utsrelease")
+                mkdir -p "/lib/modules/${kernel_release}"
+                ln -sfn "$header_dir" "/lib/modules/${kernel_release}/build"
+              done
               if [ "$MODULE_ARCH" = arm64 ]; then
                 compiler_prefix=aarch64-linux-gnu-
               else
@@ -89,12 +121,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MODULE_ARCH: ${{ matrix.arch }}
+          RELEASE_VERSION: ${{ matrix.release_version || '' }}
         run: |
           shopt -s nullglob
           for asset in dist/pisugar-module_*_"$MODULE_ARCH".tar.gz; do
             abi=${asset#dist/pisugar-module_}
             abi=${abi%_"$MODULE_ARCH".tar.gz}
-            kernel_version=${abi%%+*}
+            kernel_version=${RELEASE_VERSION:-${abi%%+*}}
             tag="kernel-${kernel_version}"
             branch="kernel/${kernel_version}"
             if ! git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
