@@ -1,0 +1,82 @@
+name: Build Raspberry Pi kernel modules
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.suite }} / ${{ matrix.arch }}
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: bookworm
+            arch: arm64
+            platform: linux/arm64
+            image: debian:bookworm
+            headers: linux-headers-rpi-v8 linux-headers-rpi-2712
+          - suite: bookworm
+            arch: armhf
+            platform: linux/arm/v7
+            image: arm32v7/debian:bookworm
+            headers: linux-headers-rpi-v6 linux-headers-rpi-v7 linux-headers-rpi-v7l
+          - suite: trixie
+            arch: arm64
+            platform: linux/arm64
+            image: debian:trixie
+            headers: linux-headers-rpi-v8 linux-headers-rpi-2712
+          - suite: trixie
+            arch: armhf
+            platform: linux/arm/v7
+            image: arm32v7/debian:trixie
+            headers: linux-headers-rpi-v6 linux-headers-rpi-v7 linux-headers-rpi-v7l
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build modules from PiSugar source
+        env:
+          IMAGE: ${{ matrix.image }}
+          PLATFORM: ${{ matrix.platform }}
+          SUITE: ${{ matrix.suite }}
+          HEADERS: ${{ matrix.headers }}
+          MODULE_ARCH: ${{ matrix.arch }}
+        run: |
+          docker run --rm --platform "$PLATFORM" \
+            -e SUITE -e HEADERS -e MODULE_ARCH \
+            -v "$PWD:/output" -w /tmp "$IMAGE" bash -euxo pipefail -c '
+              apt-get update
+              apt-get install -y --no-install-recommends ca-certificates curl gpg gpgv git build-essential bc bison flex libssl-dev libelf-dev kmod
+              git clone --depth 1 https://github.com/PiSugar/pisugar-power-manager-rs.git source
+              curl -fsSL https://archive.raspberrypi.com/debian/raspberrypi.gpg.key | gpg --dearmor -o /usr/share/keyrings/raspberrypi-archive-keyring.gpg
+              curl -fsSL "https://archive.raspberrypi.com/debian/dists/$SUITE/InRelease" -o /tmp/InRelease
+              gpgv --keyring /usr/share/keyrings/raspberrypi-archive-keyring.gpg /tmp/InRelease
+              echo "deb [trusted=yes] https://archive.raspberrypi.com/debian/ $SUITE main" > /etc/apt/sources.list.d/raspberrypi.list
+              apt-get update
+              apt-get install -y --no-install-recommends $HEADERS
+              cd source
+              bash pisugar-module/build-prebuilt.sh "$MODULE_ARCH" /output/dist
+            '
+
+      - name: Publish new kernel ABI releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODULE_ARCH: ${{ matrix.arch }}
+        run: |
+          shopt -s nullglob
+          for asset in dist/pisugar-module_*_"$MODULE_ARCH".tar.gz; do
+            abi=${asset#dist/pisugar-module_}
+            abi=${abi%_"$MODULE_ARCH".tar.gz}
+            tag="kernel-${abi}"
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "${tag} already exists; skipping."
+              continue
+            fi
+            git push origin "${GITHUB_SHA}:refs/heads/kernel/${abi}"
+            gh release create "$tag" --target "$GITHUB_SHA" --title "PiSugar module ${abi}" --notes "Prebuilt PiSugar battery kernel module for ${abi}." --attach "$asset"
+          done
