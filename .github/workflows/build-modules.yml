@@ -80,7 +80,7 @@ jobs:
                 git ls-remote --exit-code --heads origin "$branch" >/dev/null
             fi
             if ! gh release view "$tag" >/dev/null 2>&1; then
-              gh release create "$tag" --target "$branch" --title "PiSugar modules for Linux ${kernel_version}" --notes "Prebuilt PiSugar battery kernel modules for Linux ${kernel_version}." --latest=false || \
+              gh release create "$tag" --target "$branch" --title "PiSugar modules for Linux ${kernel_version}" --notes "Prebuilt PiSugar battery kernel modules for Linux ${kernel_version}." --prerelease --latest=false || \
                 gh release view "$tag" >/dev/null
             fi
             gh release upload "$tag" "$asset" --clobber
