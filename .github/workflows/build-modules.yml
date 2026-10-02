@@ -72,14 +72,16 @@ jobs:
           for asset in dist/pisugar-module_*_"$MODULE_ARCH".tar.gz; do
             abi=${asset#dist/pisugar-module_}
             abi=${abi%_"$MODULE_ARCH".tar.gz}
-            tag="kernel-${abi}"
-            if gh release view "$tag" >/dev/null 2>&1; then
-              echo "${tag} already exists; skipping."
-              continue
-            fi
-            branch="kernel/${abi}"
+            kernel_version=${abi%%+*}
+            tag="kernel-${kernel_version}"
+            branch="kernel/${kernel_version}"
             if ! git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
-              git push origin "${GITHUB_SHA}:refs/heads/${branch}"
+              git push origin "${GITHUB_SHA}:refs/heads/${branch}" || \
+                git ls-remote --exit-code --heads origin "$branch" >/dev/null
             fi
-            gh release create "$tag" --target "$branch" --title "PiSugar module ${abi}" --notes "Prebuilt PiSugar battery kernel module for ${abi}." "$asset"
+            if ! gh release view "$tag" >/dev/null 2>&1; then
+              gh release create "$tag" --target "$branch" --title "PiSugar modules for Linux ${kernel_version}" --notes "Prebuilt PiSugar battery kernel modules for Linux ${kernel_version}." --latest=false || \
+                gh release view "$tag" >/dev/null
+            fi
+            gh release upload "$tag" "$asset" --clobber
           done
