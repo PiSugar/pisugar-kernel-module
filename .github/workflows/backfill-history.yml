@@ -49,7 +49,17 @@ jobs:
               curl -fsSL "$pool/" -o /tmp/linux-pool.html
               kernel_prefix="${KERNEL_VERSION}+rpt"
               packages=""
-              for config in common-rpi $CONFIGS; do
+              for package in "linux-kbuild-${kernel_prefix}" "linux-headers-${kernel_prefix}-common-rpi"; do
+                filename=$(grep -F "href=\"${package}_" /tmp/linux-pool.html | sed -n "s/.*href=\"\\([^\"]*\\)\".*/\\1/p" | head -n 1)
+                if [ -z "$filename" ]; then
+                  echo "${package} is unavailable; skipping."
+                  continue
+                fi
+                curl -fsSLO "$pool/$filename"
+                packages="$packages $filename"
+              done
+
+              for config in $CONFIGS; do
                 package="linux-headers-${kernel_prefix}-${config}"
                 filename=$(grep -F "href=\"${package}_" /tmp/linux-pool.html | sed -n "s/.*href=\"\\([^\"]*\\)\".*/\\1/p" | head -n 1)
                 if [ -z "$filename" ]; then
@@ -61,7 +71,9 @@ jobs:
               done
 
               test -n "$packages"
-              dpkg -i $packages
+              # Images are not needed to build external modules.  Unpacking
+              # avoids pulling each historical kernel image into the runner.
+              dpkg --unpack $packages
               cd source
               bash pisugar-module/build-prebuilt.sh "$MODULE_ARCH" /output/dist
             '
