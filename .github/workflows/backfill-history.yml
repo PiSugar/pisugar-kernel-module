@@ -112,6 +112,7 @@ jobs:
               fi
               for version in 10 11 12 13 14 15; do
                 ln -sf "$(command -v "${compiler_prefix}gcc")" "/usr/local/bin/${compiler_prefix}gcc-${version}"
+                ln -sf "$(command -v gcc)" "/usr/local/bin/gcc-${version}"
               done
               cd source
               bash pisugar-module/build-prebuilt.sh "$MODULE_ARCH" /output/dist
