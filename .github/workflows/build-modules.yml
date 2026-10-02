@@ -35,7 +35,7 @@ jobs:
             arch: armhf
             platform: linux/arm/v7
             image: arm32v7/debian:trixie
-            headers: linux-headers-rpi-v6 linux-headers-rpi-v7 linux-headers-rpi-v7l
+            headers: linux-headers-rpi-v6 linux-headers-rpi-v7
     steps:
       - uses: actions/checkout@v4
 
@@ -77,6 +77,9 @@ jobs:
               echo "${tag} already exists; skipping."
               continue
             fi
-            git push origin "${GITHUB_SHA}:refs/heads/kernel/${abi}"
-            gh release create "$tag" --target "$GITHUB_SHA" --title "PiSugar module ${abi}" --notes "Prebuilt PiSugar battery kernel module for ${abi}." "$asset"
+            branch="kernel/${abi}"
+            if ! git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+              git push origin "${GITHUB_SHA}:refs/heads/${branch}"
+            fi
+            gh release create "$tag" --target "$branch" --title "PiSugar module ${abi}" --notes "Prebuilt PiSugar battery kernel module for ${abi}." "$asset"
           done
