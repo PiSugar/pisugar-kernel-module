@@ -36,10 +36,11 @@ jobs:
           PLATFORM: ${{ matrix.arch == 'arm64' && 'linux/arm64' || 'linux/arm/v7' }}
           KERNEL_VERSION: ${{ matrix.kernel_version }}
           MODULE_ARCH: ${{ matrix.arch }}
+          DEB_ARCH: ${{ matrix.arch }}
           CONFIGS: ${{ matrix.arch == 'arm64' && 'rpi-v8 rpi-2712' || 'rpi-v6 rpi-v7 rpi-v7l' }}
         run: |
           docker run --rm --platform "$PLATFORM" \
-            -e KERNEL_VERSION -e MODULE_ARCH -e CONFIGS \
+            -e KERNEL_VERSION -e MODULE_ARCH -e DEB_ARCH -e CONFIGS \
             -v "$PWD:/output" -w /tmp "$IMAGE" bash -euxo pipefail -c '
               apt-get update
               apt-get install -y --no-install-recommends ca-certificates curl git build-essential bc bison flex libssl-dev libelf-dev kmod
@@ -49,31 +50,37 @@ jobs:
               curl -fsSL "$pool/" -o /tmp/linux-pool.html
               kernel_prefix="${KERNEL_VERSION}+rpt"
               packages=""
-              for package in "linux-kbuild-${kernel_prefix}" "linux-headers-${kernel_prefix}-common-rpi"; do
-                filename=$(grep -F "href=\"${package}_" /tmp/linux-pool.html | sed -n "s/.*href=\"\\([^\"]*\\)\".*/\\1/p" | head -n 1)
+              download_package() {
+                package=$1
+                package_arch=$2
+                filename=$(grep -F "href=\"${package}_" /tmp/linux-pool.html | sed -n "s/.*href=\"\\([^\"]*\\)\".*/\\1/p" | grep -F "_${package_arch}.deb" | head -n 1 || true)
                 if [ -z "$filename" ]; then
                   echo "${package} is unavailable; skipping."
-                  continue
+                  return 0
                 fi
                 curl -fsSLO "$pool/$filename"
                 packages="$packages $filename"
-              done
+              }
+
+              download_package "linux-kbuild-${kernel_prefix}" "$DEB_ARCH"
+              download_package "linux-headers-${kernel_prefix}-common-rpi" all
 
               for config in $CONFIGS; do
-                package="linux-headers-${kernel_prefix}-${config}"
-                filename=$(grep -F "href=\"${package}_" /tmp/linux-pool.html | sed -n "s/.*href=\"\\([^\"]*\\)\".*/\\1/p" | head -n 1)
-                if [ -z "$filename" ]; then
-                  echo "${package} is unavailable; skipping."
-                  continue
-                fi
-                curl -fsSLO "$pool/$filename"
-                packages="$packages $filename"
+                download_package "linux-headers-${kernel_prefix}-${config}" "$DEB_ARCH"
               done
 
               test -n "$packages"
               # Images are not needed to build external modules.  Unpacking
               # avoids pulling each historical kernel image into the runner.
               dpkg --unpack $packages
+              if [ "$MODULE_ARCH" = arm64 ]; then
+                compiler_prefix=aarch64-linux-gnu-
+              else
+                compiler_prefix=arm-linux-gnueabihf-
+              fi
+              for version in 10 11 12 13 14 15; do
+                ln -sf "$(command -v "${compiler_prefix}gcc")" "/usr/local/bin/${compiler_prefix}gcc-${version}"
+              done
               cd source
               bash pisugar-module/build-prebuilt.sh "$MODULE_ARCH" /output/dist
             '
