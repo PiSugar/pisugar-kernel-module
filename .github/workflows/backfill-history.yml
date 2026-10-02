@@ -1,0 +1,90 @@
+name: Backfill historical Raspberry Pi kernel modules
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Linux ${{ matrix.kernel_version }} / ${{ matrix.arch }}
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel_version:
+          - '6.12.47'
+          - '6.12.62'
+          - '6.12.75'
+          - '6.12.87'
+          - '6.12.93'
+          - '6.12.96'
+          - '6.12.109'
+          - '6.18.29'
+          - '6.18.33'
+          - '6.18.34'
+          - '6.18.39'
+          - '6.18.50'
+        arch: [arm64, armhf]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build modules from historical headers
+        env:
+          IMAGE: ${{ matrix.arch == 'arm64' && 'debian:trixie' || 'arm32v7/debian:trixie' }}
+          PLATFORM: ${{ matrix.arch == 'arm64' && 'linux/arm64' || 'linux/arm/v7' }}
+          KERNEL_VERSION: ${{ matrix.kernel_version }}
+          MODULE_ARCH: ${{ matrix.arch }}
+          CONFIGS: ${{ matrix.arch == 'arm64' && 'rpi-v8 rpi-2712' || 'rpi-v6 rpi-v7 rpi-v7l' }}
+        run: |
+          docker run --rm --platform "$PLATFORM" \
+            -e KERNEL_VERSION -e MODULE_ARCH -e CONFIGS \
+            -v "$PWD:/output" -w /tmp "$IMAGE" bash -euxo pipefail -c '
+              apt-get update
+              apt-get install -y --no-install-recommends ca-certificates curl git build-essential bc bison flex libssl-dev libelf-dev kmod
+              git clone --depth 1 https://github.com/PiSugar/pisugar-power-manager-rs.git source
+
+              pool=https://archive.raspberrypi.com/debian/pool/main/l/linux
+              curl -fsSL "$pool/" -o /tmp/linux-pool.html
+              kernel_prefix="${KERNEL_VERSION}+rpt"
+              packages=""
+              for config in common-rpi $CONFIGS; do
+                package="linux-headers-${kernel_prefix}-${config}"
+                filename=$(grep -F "href=\"${package}_" /tmp/linux-pool.html | sed -n "s/.*href=\"\\([^\"]*\\)\".*/\\1/p" | head -n 1)
+                if [ -z "$filename" ]; then
+                  echo "${package} is unavailable; skipping."
+                  continue
+                fi
+                curl -fsSLO "$pool/$filename"
+                packages="$packages $filename"
+              done
+
+              test -n "$packages"
+              dpkg -i $packages
+              cd source
+              bash pisugar-module/build-prebuilt.sh "$MODULE_ARCH" /output/dist
+            '
+
+      - name: Publish grouped kernel release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODULE_ARCH: ${{ matrix.arch }}
+        run: |
+          shopt -s nullglob
+          for asset in dist/pisugar-module_*_"$MODULE_ARCH".tar.gz; do
+            abi=${asset#dist/pisugar-module_}
+            abi=${abi%_"$MODULE_ARCH".tar.gz}
+            kernel_version=${abi%%+*}
+            tag="kernel-${kernel_version}"
+            branch="kernel/${kernel_version}"
+            if ! git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+              git push origin "${GITHUB_SHA}:refs/heads/${branch}" || \
+                git ls-remote --exit-code --heads origin "$branch" >/dev/null
+            fi
+            if ! gh release view "$tag" >/dev/null 2>&1; then
+              gh release create "$tag" --target "$branch" --title "PiSugar modules for Linux ${kernel_version}" --notes "Prebuilt PiSugar battery kernel modules for Linux ${kernel_version}." --prerelease --latest=false || \
+                gh release view "$tag" >/dev/null
+            fi
+            gh release upload "$tag" "$asset" --clobber
+          done
