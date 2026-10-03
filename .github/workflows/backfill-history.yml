@@ -39,6 +39,60 @@ jobs:
           - '6.18.50'
         arch: [arm64, armhf]
         include:
+          # Raspberry Pi OS Bookworm's 2023 6.1 series used historical
+          # header package prefixes rather than the current <version>+rpt
+          # naming. Keep every archived 2023 snapshot grouped by its numeric
+          # kernel version in the matching Release.
+          - kernel_version: '6.1.21'
+            arch: arm64
+            header_prefix: 6.1.0-rpi1
+            kbuild_package: linux-kbuild-6.1
+            release_version: '6.1.21'
+          - kernel_version: '6.1.21'
+            arch: armhf
+            header_prefix: 6.1.0-rpi1
+            kbuild_package: linux-kbuild-6.1
+            release_version: '6.1.21'
+          - kernel_version: '6.1.47'
+            arch: arm64
+            header_prefix: 6.1.0-rpi2
+            kbuild_package: linux-kbuild-6.1
+            release_version: '6.1.47'
+          - kernel_version: '6.1.47'
+            arch: armhf
+            header_prefix: 6.1.0-rpi2
+            kbuild_package: linux-kbuild-6.1
+            release_version: '6.1.47'
+          - kernel_version: '6.1.54'
+            arch: arm64
+            header_prefix: 6.1.0-rpi4
+            kbuild_package: linux-kbuild-6.1
+            release_version: '6.1.54'
+          - kernel_version: '6.1.54'
+            arch: armhf
+            header_prefix: 6.1.0-rpi4
+            kbuild_package: linux-kbuild-6.1
+            release_version: '6.1.54'
+          - kernel_version: '6.1.58'
+            arch: arm64
+            header_prefix: 6.1.0-rpi6
+            kbuild_package: linux-kbuild-6.1
+            release_version: '6.1.58'
+          - kernel_version: '6.1.58'
+            arch: armhf
+            header_prefix: 6.1.0-rpi6
+            kbuild_package: linux-kbuild-6.1
+            release_version: '6.1.58'
+          - kernel_version: '6.1.63'
+            arch: arm64
+            header_prefix: 6.1.0-rpi7
+            kbuild_package: linux-kbuild-6.1
+            release_version: '6.1.63'
+          - kernel_version: '6.1.63'
+            arch: armhf
+            header_prefix: 6.1.0-rpi7
+            kbuild_package: linux-kbuild-6.1
+            release_version: '6.1.63'
           - kernel_version: '6.1.73'
             arch: arm64
             header_prefix: 6.1.0-rpi8
